@@ -17,7 +17,7 @@ port = os.getenv('IRC_PORT', 6697)
 channel = os.getenv('IRC_CHANNEL', '#random')
 nick = os.getenv('IRC_NICK', 'reminder-bot')
 user = os.getenv('IRC_USER', 'reminder-bot')
-gecos = os.getenv('IRC_GECOS', 'Reminder Bot v0.0.1 (github.com/AlexGustafsson/irc-reminder-bot)')
+gecos = os.getenv('IRC_GECOS', 'Reminder Bot v0.0.2 (github.com/AlexGustafsson/irc-reminder-bot)')
 timezone = os.getenv('TIMEZONE', 'CET')
 data_directory = os.getenv('DATA_DIRECTORY', '.')
 data_file = '{0}/reminders.sqlite'.format(data_directory)
@@ -104,7 +104,7 @@ def handle_help():
 
 
 def handle_reminder(author, channel, message):
-    match = re.match('([^"]*)(".*")?', message)
+    match = re.match('([^"”]*)(["”].*["”])?', message)
     if match is None:
         return
 
