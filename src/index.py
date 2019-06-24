@@ -17,12 +17,17 @@ port = int(os.getenv('IRC_PORT', '6697'))
 channel = os.getenv('IRC_CHANNEL', '#random')
 nick = os.getenv('IRC_NICK', 'reminder-bot')
 user = os.getenv('IRC_USER', 'reminder-bot')
-gecos = os.getenv('IRC_GECOS', 'Reminder Bot v0.0.2 (github.com/AlexGustafsson/irc-reminder-bot)')
-timezone = os.getenv('TIMEZONE', 'CET')
+gecos = os.getenv('IRC_GECOS', 'Reminder Bot v0.0.3 (github.com/AlexGustafsson/irc-reminder-bot)')
+timezone = os.getenv('TZ', 'Europe/Stockholm')
 data_directory = os.getenv('DATA_DIRECTORY', '.')
 data_file = '{0}/reminders.sqlite'.format(data_directory)
 
 timer = None
+
+
+def prettyTimestamp(timestamp):
+    # Calculate the current local time
+    return datetime.fromtimestamp(timestamp).astimezone().strftime('%Y-%m-%d %H:%M:%S')
 
 
 def setup_database():
@@ -46,7 +51,7 @@ def create_reminder(author, deadline, channel, body):
 def get_reminders():
     database = sqlite3.connect(data_file)
     database.row_factory = sqlite3.Row
-    sql = 'SELECT * FROM Reminders'
+    sql = 'SELECT * FROM Reminders ORDER BY deadline ASC'
     cursor = database.cursor()
     cursor.execute(sql)
     rows = [dict(row) for row in cursor.fetchall()]
@@ -71,25 +76,25 @@ def set_timer():
     if len(reminders) == 0:
         return
 
-    reminders.sort(key=lambda x: x['deadline'], reverse=True)
-
     next_reminder = reminders[0]
     if timer is not None:
         timer.cancel()
         timer = None
 
-    now = round(datetime.timestamp(datetime.utcnow()))
+    now = datetime.timestamp(datetime.now())
     delay = max(next_reminder['deadline'] - now, 0)
-    print('Bot: Setting timer for {0} seconds (now: {1}, deadline: {2})'.format(delay, now, next_reminder['deadline']))
+
+    print('Bot: Setting timer for {0} seconds ({1})'.format(delay, prettyTimestamp(next_reminder['deadline'])))
     timer = Timer(delay, handle_timer, [next_reminder])
     timer.start()
 
 
 def handle_timer(reminder):
-    print('Bot: Handling reminder {0}', reminder['deadline'])
+    print('Bot: Handling reminder', reminder['deadline'], '({0})'.format(prettyTimestamp(reminder['deadline'])))
     message = 'Reminding {0}'.format(reminder['author'])
     if reminder['body'] is not None:
         message += ': {0}'.format(reminder['body'])
+
     irc.sendAction(reminder['channel'], message)
     remove_reminder(reminder['deadline'])
     set_timer()
@@ -98,7 +103,7 @@ def handle_timer(reminder):
 def handle_help():
     irc.send(channel, 'I handle reminders for users and channels.')
     irc.send(channel, 'You can use the following commands:')
-    irc.send(channel, 'RemindMe! 1 hour "That was easy!"')
+    irc.send(channel, 'RemindMe! in 1 hour "That was easy!"')
     irc.send(channel, 'RemindMe! January 19, 2038, at 03:14:08 UTC "Did we make it?"')
     irc.send(channel, '{0}: help'.format(nick))
 
@@ -108,12 +113,11 @@ def handle_reminder(author, channel, message):
     if match is None:
         return
 
-    time = match.group(1)
-    body = match.group(2)[1:-1] if match.group(2) is not None else None
+    notification_time = match.group(1)
+    notification_body = match.group(2)[1:-1] if match.group(2) is not None else None
 
-    parsed_date = dateparser.parse(time, settings={
-        'TIMEZONE': timezone,
-        'TO_TIMEZONE': 'UTC'
+    parsed_date = dateparser.parse(notification_time, settings={
+        'TIMEZONE': timezone
     })
 
     if parsed_date is None:
@@ -122,8 +126,14 @@ def handle_reminder(author, channel, message):
 
     deadline = round(datetime.timestamp(parsed_date))
 
-    create_reminder(author, deadline, channel, body)
-    set_timer()
+    try:
+        create_reminder(author, deadline, channel, notification_body)
+        set_timer()
+
+        irc.send(channel, 'A reminder has been set for {0}'.format(prettyTimestamp(deadline)))
+    except Exception as e:
+        irc.send(channel, 'Could not set notfication')
+        print(e)
 
 
 def handle_message(message):
@@ -132,6 +142,9 @@ def handle_message(message):
         if body == '{0}: help'.format(nick):
             handle_help()
         elif body.find('RemindMe! ') == 0:
+            # Handle direct messages
+            if target == nick:
+                target = sender
             handle_reminder(sender, target, body[10:])
 
 

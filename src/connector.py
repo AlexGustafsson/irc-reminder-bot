@@ -14,6 +14,8 @@ class IRC:
         self.shouldRun = None
         self.messages = queue.Queue()
 
+        self.lock = threading.Lock()
+
     def connect(self, server, port, user, nick, gecos=''):
         ssl_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock = ssl.wrap_socket(ssl_sock)
@@ -38,10 +40,12 @@ class IRC:
         self.sock.send(bytes('PONG :{0}\r\n'.format(key), 'UTF-8'))
 
     def send(self, channel, message):
-        self.sock.send(bytes('PRIVMSG {0} :{1}\r\n'.format(channel, message), 'UTF-8'))
+        with self.lock:
+            self.sock.send(bytes('PRIVMSG {0} :{1}\r\n'.format(channel, message), 'UTF-8'))
 
     def sendAction(self, channel, message):
-        self.sock.send(bytes('PRIVMSG {0} :\x01ACTION {1}!\x01\r\n'.format(channel, message), 'UTF-8'))
+        with self.lock:
+            self.sock.send(bytes('PRIVMSG {0} :\x01ACTION {1}\x01\r\n'.format(channel, message), 'UTF-8'))
 
     def read(self):
         message = self.sock.recv(1024).decode('UTF-8').strip('\r\n')
@@ -67,8 +71,16 @@ class IRC:
 
                 self.messages.put((sender, message_type, target, message))
 
-    def retrieveMessage(self):
-        message = self.messages.get()
-        self.messages.task_done()
+    def retrieveMessage(self, timeout=1000):
+        timeout += time.monotonic()
+        while True:
+            try:
+                message = self.messages.get(timeout=min(1, timeout - time.monotonic()))
+                self.messages.task_done()
 
-        return message
+                return message
+            except queue.Empty:
+                if time.monotonic() > timeout:
+                    raise
+                else:
+                    pass
