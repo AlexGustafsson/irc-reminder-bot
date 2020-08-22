@@ -1,12 +1,21 @@
 FROM python:3-alpine
 
-ADD https://github.com/scrapinghub/dateparser/archive/v0.7.1.tar.gz dateparser
-RUN apk update && apk add gcc libc-dev && easy_install dateparser && apk del gcc libc-dev && apk add tzdata
+RUN apk --no-cache add tzdata gcc libc-dev && \
+    addgroup -g 6697 -S irc-bot && \
+    adduser -u 6697 -S irc-bot -G irc-bot && \
+    mkdir /irc-bot && \
+    mkdir /irc-bot/data && \
+    chown -R 6697:6697 /irc-bot/data
 
-RUN mkdir -p /var/www && mkdir -p /var/data
-COPY src /var/www/
+WORKDIR /irc-bot
 
-ENV DATA_DIRECTORY="/var/data"
-ENV TZ="Europe/Stockholm"
+COPY requirements.txt .
+RUN python3 -m pip install -r requirements.txt && apk del gcc libc-dev && chown -R 6697:6697 /irc-bot
 
-CMD ["python", "/var/www/index.py"]
+COPY . .
+
+USER irc-bot
+
+VOLUME /irc-bot/data
+
+ENTRYPOINT ["python3", "-m", "bot.main"]
